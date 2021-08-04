@@ -1,0 +1,69 @@
+name: Send KPIs to slack
+
+on:
+  schedule:
+    - cron:  '20 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  send-kpi:
+    name: Send KPIs to slack
+    runs-on: ubuntu-20.04
+    steps:
+      - id: checkout
+        name: Check out source code
+        uses: actions/checkout@v2
+
+      - id: setup-aws
+        name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - id: setup-python
+        name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - id: install-py-packages
+        name: install python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - id: get-cognito-data
+        name: Get signup data from cognito
+        run: |-
+          echo "name,email,signup_date,enabled,status" > signup-info.csv
+          aws cognito-idp list-users --user-pool-id ${{ secrets.COGNITO_PRODUCTION_POOL }} \
+            | jq -r '( .Users[] | [.Attributes[2,3].Value, .UserCreateDate, .Enabled, .UserStatus] | @csv )' >> signup-info.csv
+
+      - id: get-matomo-data
+        name: Get login data from matomo
+        run: |-
+          echo "email,last_login,number_of_logins" > login-info.csv
+          curl 'https://biomage.matomo.cloud/?module=API&method=Live.getLastVisitsDetails&format=JSON&idSite=1&token_auth=${{ secrets.MATOMO_AUTH_TOKEN }}' \
+            | jq -r '.[] | [ .userId, .lastActionDateTime, .visitCount ] |  @csv' \
+            | tr -d \" \
+            | sort -r -t, -k2,2 \
+            | awk -F',' '!seen[$1]++' >> login-info.csv
+
+      - id: generate-kpis
+        name: Generate the KPI metrics
+        run: |-
+          python3 src/analytics.py > output
+          sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g' output > analytics-output
+          echo "::set-output name=analytics::$(cat analytics-output)"
+          cat analytics-output
+
+      - id: send-to-slack 
+        name: Send KPIs to Slack
+        uses: slackapi/slack-github-action@v1.14.0
+        with:
+          payload: "{\"text\":\"${{ steps.generate-kpis.outputs.analytics }}\"}" # This data can be any valid JSON from a previous step in the GitHub Action
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
