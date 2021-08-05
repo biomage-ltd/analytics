@@ -1,12 +1,20 @@
 import pandas as pd
 import numpy as np
+import hashlib
+import sys
 
 from datetime import datetime, timedelta
 
+def hash_word(w):
+    return hashlib.shake_256(w.encode("utf-8")).hexdigest(length=4)
+
+
 # whether to return user names & emails or not
-anonymize = True
+anonymize = sys.argv[1] == "True"
+output_file = sys.argv[2]
 
 
+print(f"anonimize? {anonymize}")
 signup_df = pd.read_csv('signup-info.csv')
 login_df = pd.read_csv('login-info.csv')
 
@@ -26,10 +34,14 @@ df['last_login'] = pd.to_datetime(df['last_login'])
 
 
 if anonymize == True:
-    df = df[["signup_date","last_login", "number_of_logins"]]
+    df["hashed_username"] = df["name"].apply(hash_word)
+    df = df[["hashed_username", "signup_date","last_login", "number_of_logins"]]
+
 
 print("All users:\n")
-print(df.replace({pd.NaT: '-'}).to_json())
+result = df.replace({pd.NaT: '-'})
+print(result.to_markdown(index=False))
+result.to_markdown(output_file, index=False)
 
 days = 7
 one_week_ago =  datetime.today() - timedelta(days=days)

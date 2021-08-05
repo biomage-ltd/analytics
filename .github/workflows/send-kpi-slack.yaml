@@ -32,7 +32,7 @@ jobs:
         name: install python packages
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy
+          pip install -r requirements.txt
 
       - id: get-cognito-data
         name: Get signup data from cognito
@@ -54,12 +54,12 @@ jobs:
       - id: generate-kpis
         name: Generate the KPI metrics
         run: |-
-          python3 src/analytics.py > output
+          python3 src/analytics.py True output
           sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g' output > analytics-output
           echo "::set-output name=analytics::$(cat analytics-output)"
           cat analytics-output
 
-      - id: send-to-slack 
+      - id: send-to-slack
         name: Send KPIs to Slack
         uses: slackapi/slack-github-action@v1.14.0
         with:
